@@ -42,7 +42,7 @@ public protocol NetworkingProtocol {
     /// - Returns: Publisher emitting decoded model or NetworkError.
     @available(iOS 13.0, macOS 10.15, *)
     func get<T: Decodable>(
-        urlString: String,
+        endPoint: String,
         headers: [String: String],
         query: [String: Any],
         modelType: T.Type
@@ -58,7 +58,7 @@ public protocol NetworkingProtocol {
     /// - Returns: Publisher emitting decoded model or NetworkError.
     @available(iOS 13.0, macOS 10.15, *)
     func post<T: Codable>(
-        urlString: String,
+        endPoint: String,
         params: [String: Any],
         headers: [String: String],
         modelType: T.Type
@@ -75,7 +75,7 @@ public protocol NetworkingProtocol {
     /// - Throws: `NetworkError` if URL is invalid, decoding fails, or response code is not 200.
     @available(iOS 13.0, macOS 12.0, *)
     func get<T: Decodable>(
-        urlString: String,
+        endPoint: String,
         headers: [String: String],
         query: [String: Any],
         modelType: T.Type
@@ -92,7 +92,7 @@ public protocol NetworkingProtocol {
     /// - Throws: `NetworkError` if URL is invalid, decoding fails, or status code is incorrect.
     @available(iOS 13.0, macOS 12.0, *)
     func post<T: Decodable>(
-        urlString: String,
+        endPoint: String,
         headers: [String: String],
         params: [String: Any],
         modelType: T.Type
@@ -119,19 +119,28 @@ public protocol NetworkingProtocol {
 @available(iOS 13.0, macOS 10.15, *)
 public final class Networking: NetworkingProtocol {
     
-    public init() {}
+    private let baseURL: String
+    
+    public init(baseURLString: String) {
+        self.baseURL = baseURLString
+    }
     
     public func get<T: Decodable>(
-        urlString: String,
+        endPoint: String,
         headers: [String: String],
         query: [String: Any],
         modelType: T.Type
     ) -> AnyPublisher<T, NetworkError> {
         
-        var urlStringWithQuery = urlString + query.toQuery()
-        urlStringWithQuery = urlStringWithQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        var urlComponents = URLComponents(string: baseURL + (endPoint.hasPrefix("/") ? endPoint : "/\(endPoint)"))
         
-        guard let url = URL(string: urlStringWithQuery) else {
+        if !query.isEmpty {
+            urlComponents?.queryItems = query.map { key, value in
+                URLQueryItem(name: key, value: "\(value)")
+            }
+        }
+        
+        guard let url = urlComponents?.url else {
             return Fail(error: NetworkError.invalidURL).eraseToAnyPublisher()
         }
         
@@ -158,13 +167,15 @@ public final class Networking: NetworkingProtocol {
     }
     
     public func post<T: Codable>(
-        urlString: String,
+        endPoint: String,
         params: [String: Any],
         headers: [String: String],
         modelType: T.Type
     ) -> AnyPublisher<T, NetworkError> {
         
-        guard let url = URL(string: urlString) else {
+        var urlComponents = URLComponents(string: baseURL + (endPoint.hasPrefix("/") ? endPoint : "/\(endPoint)"))
+        
+        guard let url = urlComponents?.url else {
             return Fail(error: NetworkError.invalidURL).eraseToAnyPublisher()
         }
         
@@ -195,16 +206,21 @@ public final class Networking: NetworkingProtocol {
     
     @available(macOS 12.0, iOS 13.0, *)
     public func get<T: Decodable>(
-        urlString: String,
+        endPoint: String,
         headers: [String: String],
         query: [String: Any],
         modelType: T.Type
     ) async throws -> T {
         
-        var urlStringWithQuery = urlString + query.toQuery()
-        urlStringWithQuery = urlStringWithQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        var urlComponents = URLComponents(string: baseURL + (endPoint.hasPrefix("/") ? endPoint : "/\(endPoint)"))
         
-        guard let url = URL(string: urlStringWithQuery) else {
+        if !query.isEmpty {
+            urlComponents?.queryItems = query.map { key, value in
+                URLQueryItem(name: key, value: "\(value)")
+            }
+        }
+        
+        guard let url = urlComponents?.url else {
             throw NetworkError.invalidURL
         }
         
@@ -224,13 +240,15 @@ public final class Networking: NetworkingProtocol {
     
     @available(macOS 12.0, iOS 13.0, *)
     public func post<T: Decodable>(
-        urlString: String,
+        endPoint: String,
         headers: [String: String],
         params: [String: Any],
         modelType: T.Type
     ) async throws -> T {
         
-        guard let url = URL(string: urlString) else {
+        var urlComponents = URLComponents(string: baseURL + (endPoint.hasPrefix("/") ? endPoint : "/\(endPoint)"))
+        
+        guard let url = urlComponents?.url else {
             throw NetworkError.invalidURL
         }
         
@@ -314,7 +332,16 @@ public final class Networking: NetworkingProtocol {
                 case .success(let data):
                     promise(.success((data, response.response)))
                 case .failure(let error):
-                    promise(.failure(NetworkError.genericError(error.localizedDescription)))
+                    if let afError = error.asAFError {
+                        switch afError {
+                        case .sessionTaskFailed(let urlError as URLError):
+                            promise(.failure(NetworkError.genericError("Network issue: \(urlError.localizedDescription)")))
+                        default:
+                            promise(.failure(NetworkError.genericError("AFError: \(afError.localizedDescription)")))
+                        }
+                    } else {
+                        promise(.failure(NetworkError.genericError(error.localizedDescription)))
+                    }
                 }
             }
             
@@ -336,17 +363,6 @@ public final class Networking: NetworkingProtocol {
 // MARK: - Dictionary Extensions
 
 extension Dictionary {
-    /// Encodes dictionary to x-www-form-urlencoded format.
-    func percentEncoded() -> Data? {
-        return map { key, value in
-            let escapedKey = "\(key)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            let escapedValue = "\(value)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            return escapedKey + "=" + escapedValue
-        }
-        .joined(separator: "&")
-        .data(using: .utf8)
-    }
-    
     /// Converts dictionary to JSON Data.
     func toJsonObject() -> Data {
         do {
@@ -357,20 +373,6 @@ extension Dictionary {
             print(error.localizedDescription)
         }
         return Data()
-    }
-    
-    /// Converts dictionary to query string.
-    func toQuery() -> String {
-        let queryDic = self
-        var queryString = "?"
-        for item in queryDic {
-            queryString += item.key as! String
-            queryString += "="
-            queryString += "\(item.value)"
-            queryString += "&"
-        }
-        queryString = String(queryString.dropLast())
-        return queryString
     }
 }
 
