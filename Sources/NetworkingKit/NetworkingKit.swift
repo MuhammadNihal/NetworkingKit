@@ -15,6 +15,7 @@ public enum NetworkError: Error {
     case genericError(String)
     case invalidResponseCode(Int)
     
+    /// Provides readable error messages for each network error case.
     public var errorMessageString: String {
         switch self {
         case .invalidURL:
@@ -31,6 +32,47 @@ public enum NetworkError: Error {
 
 public protocol NetworkingProtocol {
     
+    /// Sends a GET request using Combine and returns a publisher with decoded response.
+    ///
+    /// - Parameters:
+    ///   - urlString: The endpoint URL.
+    ///   - headers: Request headers.
+    ///   - query: Query parameters.
+    ///   - modelType: Expected model to decode.
+    /// - Returns: Publisher emitting decoded model or NetworkError.
+    @available(iOS 13.0, macOS 10.15, *)
+    func get<T: Decodable>(
+        urlString: String,
+        headers: [String: String],
+        query: [String: Any],
+        modelType: T.Type
+    ) -> AnyPublisher<T, NetworkError>
+    
+    /// Sends a POST request using Combine and returns a publisher with decoded response.
+    ///
+    /// - Parameters:
+    ///   - urlString: The endpoint URL.
+    ///   - params: Request body as dictionary.
+    ///   - headers: Request headers.
+    ///   - modelType: Model to decode.
+    /// - Returns: Publisher emitting decoded model or NetworkError.
+    @available(iOS 13.0, macOS 10.15, *)
+    func post<T: Codable>(
+        urlString: String,
+        params: [String: Any],
+        headers: [String: String],
+        modelType: T.Type
+    ) -> AnyPublisher<T, NetworkError>
+    
+    /// Sends a GET request using async/await and returns a decoded model.
+    ///
+    /// - Parameters:
+    ///   - urlString: The endpoint URL.
+    ///   - headers: Dictionary of headers to include in the request.
+    ///   - query: Dictionary of query parameters.
+    ///   - modelType: The expected Decodable model type.
+    /// - Returns: Decoded object of type `T`.
+    /// - Throws: `NetworkError` if URL is invalid, decoding fails, or response code is not 200.
     @available(iOS 13.0, macOS 12.0, *)
     func get<T: Decodable>(
         urlString: String,
@@ -39,6 +81,15 @@ public protocol NetworkingProtocol {
         modelType: T.Type
     ) async throws -> T
     
+    /// Sends a POST request using async/await and returns a decoded model.
+    ///
+    /// - Parameters:
+    ///   - urlString: The endpoint URL in string format.
+    ///   - headers: The headers to include in the request.
+    ///   - params: The request body parameters in dictionary form.
+    ///   - modelType: The expected Decodable model type for the response.
+    /// - Returns: A decoded object of the given type `T`.
+    /// - Throws: `NetworkError` if URL is invalid, decoding fails, or status code is incorrect.
     @available(iOS 13.0, macOS 12.0, *)
     func post<T: Decodable>(
         urlString: String,
@@ -47,22 +98,15 @@ public protocol NetworkingProtocol {
         modelType: T.Type
     ) async throws -> T
     
-    @available(iOS 13.0, macOS 10.15, *)
-    func getPublisher<T: Decodable>(
-        urlString: String,
-        headers: [String: String],
-        query: [String: Any],
-        modelType: T.Type
-    ) -> AnyPublisher<T, NetworkError>
-    
-    @available(iOS 13.0, macOS 10.15, *)
-    func postPublisher<T: Codable>(
-        urlString: String,
-        params: [String: Any],
-        headers: [String: String],
-        modelType: T.Type
-    ) -> AnyPublisher<T, NetworkError>
-    
+    /// Sends a multipart request and returns upload result using Combine.
+    ///
+    /// - Parameters:
+    ///   - method: HTTP method (default is .post).
+    ///   - url: Upload endpoint.
+    ///   - parameters: Form data including files.
+    ///   - header: HTTP headers.
+    ///   - progressCompleted: Upload progress closure.
+    /// - Returns: Publisher with tuple of optional Data and URLResponse, or error.
     @available(iOS 13.0, macOS 10.15, *)
     func multipart(
         method: HTTPMethod,
@@ -77,8 +121,7 @@ public final class Networking: NetworkingProtocol {
     
     public init() {}
     
-    // MARK: - Combine Publisher (GET)
-    public func getPublisher<T: Decodable>(
+    public func get<T: Decodable>(
         urlString: String,
         headers: [String: String],
         query: [String: Any],
@@ -91,14 +134,14 @@ public final class Networking: NetworkingProtocol {
         guard let url = URL(string: urlStringWithQuery) else {
             return Fail(error: NetworkError.invalidURL).eraseToAnyPublisher()
         }
-
+        
         var request = URLRequest(url: url)
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
-
+        
         return URLSession.shared.dataTaskPublisher(for: request)
             .tryMap { data, response in
                 if let httpResponse = response as? HTTPURLResponse,
-                   !(200...299).contains(httpResponse.statusCode), httpResponse.statusCode != 400 {
+                   !(200...299).contains(httpResponse.statusCode) {
                     throw NetworkError.invalidResponseCode(httpResponse.statusCode)
                 }
                 return data
@@ -113,9 +156,8 @@ public final class Networking: NetworkingProtocol {
             }
             .eraseToAnyPublisher()
     }
-
-    // MARK: - Combine Publisher (POST)
-    public func postPublisher<T: Codable>(
+    
+    public func post<T: Codable>(
         urlString: String,
         params: [String: Any],
         headers: [String: String],
@@ -125,17 +167,17 @@ public final class Networking: NetworkingProtocol {
         guard let url = URL(string: urlString) else {
             return Fail(error: NetworkError.invalidURL).eraseToAnyPublisher()
         }
-
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         request.httpBody = params.toJsonObject()
-
+        
         return URLSession.shared.dataTaskPublisher(for: request)
             .tryMap { data, response in
                 if let httpResponse = response as? HTTPURLResponse,
-                   !(200...299).contains(httpResponse.statusCode), httpResponse.statusCode != 400 {
+                   !(200...299).contains(httpResponse.statusCode) {
                     throw NetworkError.invalidResponseCode(httpResponse.statusCode)
                 }
                 return data
@@ -150,8 +192,7 @@ public final class Networking: NetworkingProtocol {
             }
             .eraseToAnyPublisher()
     }
-
-    // MARK: - Async/Await (GET)
+    
     @available(macOS 12.0, iOS 13.0, *)
     public func get<T: Decodable>(
         urlString: String,
@@ -166,22 +207,21 @@ public final class Networking: NetworkingProtocol {
         guard let url = URL(string: urlStringWithQuery) else {
             throw NetworkError.invalidURL
         }
-
+        
         var request = URLRequest(url: url)
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
+        
         let (data, response) = try await URLSession.shared.data(for: request)
-
+        
         guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) || httpResponse.statusCode == 400 else {
+              (200...299).contains(httpResponse.statusCode) else {
             throw NetworkError.invalidResponseCode((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
-
+        
         return try JSONDecoder().decode(modelType, from: data)
     }
-
-    // MARK: - Async/Await (POST)
+    
     @available(macOS 12.0, iOS 13.0, *)
     public func post<T: Decodable>(
         urlString: String,
@@ -193,24 +233,23 @@ public final class Networking: NetworkingProtocol {
         guard let url = URL(string: urlString) else {
             throw NetworkError.invalidURL
         }
-
+        
         var request = URLRequest(url: url)
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = params.toJsonObject()
-
+        
         let (data, response) = try await URLSession.shared.data(for: request)
-
+        
         guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) || httpResponse.statusCode == 400 else {
+              (200...299).contains(httpResponse.statusCode) else {
             throw NetworkError.invalidResponseCode((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
-
+        
         return try JSONDecoder().decode(modelType, from: data)
     }
     
-    // MARK: - Multipart (POST)
     @available(macOS 12.0, iOS 13.0, *)
     public func multipart(
         method: HTTPMethod = .post,
@@ -297,6 +336,7 @@ public final class Networking: NetworkingProtocol {
 // MARK: - Dictionary Extensions
 
 extension Dictionary {
+    /// Encodes dictionary to x-www-form-urlencoded format.
     func percentEncoded() -> Data? {
         return map { key, value in
             let escapedKey = "\(key)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
@@ -307,6 +347,7 @@ extension Dictionary {
         .data(using: .utf8)
     }
     
+    /// Converts dictionary to JSON Data.
     func toJsonObject() -> Data {
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: self, options: .prettyPrinted)
@@ -318,6 +359,7 @@ extension Dictionary {
         return Data()
     }
     
+    /// Converts dictionary to query string.
     func toQuery() -> String {
         let queryDic = self
         var queryString = "?"
@@ -334,14 +376,16 @@ extension Dictionary {
 
 // MARK: - PostData & DOCUMENTTYPE
 
+/// Represents supported file types for upload.
 public enum DOCUMENTTYPE: String {
     case IMAGE, VIDEO, GIF, PDF, TEXT
 }
 
+/// Represents file data to be uploaded.
 public class PostData: NSObject {
     public var value: Data!
     public var type: DOCUMENTTYPE!
-
+    
     public init(value: Data, type: DOCUMENTTYPE) {
         super.init()
         self.value = value

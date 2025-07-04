@@ -23,7 +23,7 @@ let package = Package(
         .target(
             name: "NetworkingKit",
             dependencies: [
-                "Alamofire" //
+                "Alamofire"
             ]
         )
     ]
