@@ -109,8 +109,8 @@ public protocol NetworkingProtocol {
     /// - Returns: Publisher with tuple of optional Data and URLResponse, or error.
     @available(iOS 13.0, macOS 10.15, *)
     func multipart(
+        endPoint: String,
         method: HTTPMethod,
-        url: String,
         parameters: [String: Any],
         header: [String: String],
         progressCompleted: @escaping ((Progress) -> Void)) -> AnyPublisher<(Data?, URLResponse?), NetworkError>
@@ -270,12 +270,16 @@ public final class Networking: NetworkingProtocol {
     
     @available(macOS 12.0, iOS 13.0, *)
     public func multipart(
+        endPoint: String,
         method: HTTPMethod = .post,
-        url: String,
         parameters: [String: Any],
         header: [String: String] = [:],
         progressCompleted: @escaping ((Progress) -> Void) = { _ in }
     ) -> AnyPublisher<(Data?, URLResponse?), NetworkError> {
+        
+        guard let url = URL(string: baseURL + (endPoint.hasPrefix("/") ? endPoint : "/\(endPoint)")) else {
+            return Fail(error: NetworkError.invalidURL).eraseToAnyPublisher()
+        }
         
         var headers: HTTPHeaders = [:]
         for item in header {
