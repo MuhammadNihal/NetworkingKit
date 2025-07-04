@@ -19,8 +19,10 @@ A lightweight, modular, and powerful Swift networking library built using `async
 
 ### Swift Package Manager (SPM)
 
-Go to **Xcode > File > Add Packages** and add the following URL: https://github.com/MuhammadNihal/NetworkingKit.git
-
+Go to **Xcode > File > Add Packages** and add the following URL:
+```swift
+https://github.com/MuhammadNihal/NetworkingKit.git
+```
 ---
 
 ## 📲 Usage
