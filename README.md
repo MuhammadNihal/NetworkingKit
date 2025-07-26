@@ -21,7 +21,7 @@ A lightweight, modular, and powerful Swift networking library built using `async
 
 Go to **Xcode > File > Add Packages** and add the following URL:
 ```swift
-https://github.com/MuhammadNihal/NetworkingKit.git
+https://github.com/hummasyousuf/NetworkingKit
 ```
 ---
 
